@@ -13,9 +13,6 @@ if ($Version -ne [string]$package.version) {
 
 $tag = 'v' + $Version
 $remoteTag = & git -C $projectRoot ls-remote --tags origin ('refs/tags/' + $tag)
-if ($LASTEXITCODE -eq 0 -and $remoteTag) {
-  throw "A tag $tag ja existe e e imutavel. Incremente a versao do package.json (por exemplo, npm version patch), crie uma nova tag e publique novamente."
-}
 
 $installerPath = Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Filter ('Jarvis AI Setup ' + $Version + '.exe') |
   Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
@@ -29,6 +26,19 @@ $gh = 'C:\Program Files\GitHub CLI\gh.exe'
 if (-not (Test-Path -LiteralPath $gh)) { throw 'GitHub CLI nao instalado.' }
 & $gh auth status
 if ($LASTEXITCODE -ne 0) { throw 'Autentique o GitHub CLI antes de publicar.' }
+
+if ($remoteTag) {
+  $tagCommit = (& git -C $projectRoot rev-list -n 1 $tag).Trim()
+  $headCommit = (& git -C $projectRoot rev-parse HEAD).Trim()
+  if ($tagCommit -ne $headCommit) {
+    throw "A tag $tag ja existe apontando para outro commit. Incremente a versao do package.json antes de publicar."
+  }
+}
+
+& $gh release view $tag --repo $Repository *> $null
+if ($LASTEXITCODE -eq 0) {
+  throw "A Release $tag ja existe e e imutavel. Incremente a versao do package.json antes de publicar."
+}
 
 & $gh release create $tag $installerPath --repo $Repository --title ('Jarvis ' + $Version) --notes ('Instalador Windows do Jarvis ' + $Version)
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar a Release no GitHub.' }
