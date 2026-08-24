@@ -1,13 +1,27 @@
 param(
-  [string]$Version = '1.2.1',
+  [string]$Version = '',
   [string]$Repository = 'pedro1577e8e7ee/Jarvis'
 )
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$installerPath = Join-Path $projectRoot ('release-v8\Jarvis AI Setup ' + $Version + '.exe')
+$package = Get-Content -Raw -LiteralPath (Join-Path $projectRoot 'package.json') | ConvertFrom-Json
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = [string]$package.version }
+if ($Version -ne [string]$package.version) {
+  throw "Versao da Release ($Version) difere da versao do package.json ($($package.version)). Atualize o package.json antes de publicar."
+}
 
-if (-not (Test-Path -LiteralPath $installerPath)) {
+$tag = 'v' + $Version
+$remoteTag = & git -C $projectRoot ls-remote --tags origin ('refs/tags/' + $tag)
+if ($LASTEXITCODE -eq 0 -and $remoteTag) {
+  throw "A tag $tag ja existe e e imutavel. Incremente a versao do package.json (por exemplo, npm version patch), crie uma nova tag e publique novamente."
+}
+
+$installerPath = Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Filter ('Jarvis AI Setup ' + $Version + '.exe') |
+  Where-Object { $_.FullName -notmatch '\\node_modules\\' } |
+  Select-Object -First 1 -ExpandProperty FullName
+
+if ([string]::IsNullOrWhiteSpace($installerPath) -or -not (Test-Path -LiteralPath $installerPath)) {
   throw "Instalador nao encontrado: $installerPath"
 }
 
@@ -16,5 +30,5 @@ if (-not (Test-Path -LiteralPath $gh)) { throw 'GitHub CLI nao instalado.' }
 & $gh auth status
 if ($LASTEXITCODE -ne 0) { throw 'Autentique o GitHub CLI antes de publicar.' }
 
-& $gh release create ('v' + $Version) $installerPath --repo $Repository --title ('Jarvis ' + $Version) --notes ('Instalador Windows do Jarvis ' + $Version)
+& $gh release create $tag $installerPath --repo $Repository --title ('Jarvis ' + $Version) --notes ('Instalador Windows do Jarvis ' + $Version)
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar a Release no GitHub.' }
