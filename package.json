@@ -1,0 +1,70 @@
+{
+  "name": "jarvis-ai",
+  "version": "1.2.1",
+  "description": "Jarvis — Assistente de IA Pessoal",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "set JARVIS_DEV_SERVER=1&& concurrently --kill-others-on-fail --names VITE,ELECTRON --prefix-colors cyan,magenta \"vite\" \"wait-on --timeout 30000 --interval 250 http-get://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "test": "node --test tests/*.test.js",
+    "build:win": "npm run build && electron-builder --win nsis",
+    "preview": "vite preview",
+    "electron": "electron ."
+  },
+  "dependencies": {
+    "@andresaya/edge-tts": "^1.8.0",
+    "electron-store": "^11.0.2",
+    "form-data": "^4.0.6",
+    "playwright": "^1.62.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^29.1.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^5.1.4",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.jarvis.ai",
+    "productName": "Jarvis AI",
+    "directories": {
+      "output": "release"
+    },
+    "asarUnpack": [
+      "node_modules/playwright-core/**",
+      "models/piper/**"
+    ],
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "models/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/playwright-core/.local-browsers",
+        "to": "playwright-browsers",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
