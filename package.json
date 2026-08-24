@@ -34,23 +34,14 @@
       "output": "release"
     },
     "asarUnpack": [
-      "node_modules/playwright-core/**",
       "models/piper/**"
     ],
     "files": [
       "dist/**/*",
       "electron/**/*",
       "models/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "node_modules/playwright-core/.local-browsers",
-        "to": "playwright-browsers",
-        "filter": [
-          "**/*"
-        ]
-      }
+      "package.json",
+      "!node_modules/playwright-core/.local-browsers/**"
     ],
     "win": {
       "target": [

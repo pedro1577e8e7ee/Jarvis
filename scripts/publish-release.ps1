@@ -5,10 +5,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$zipPath = Join-Path $projectRoot ('release-v6\Jarvis-AI-local-v' + $Version + '-final.zip')
+$installerPath = Join-Path $projectRoot ('release-v8\Jarvis AI Setup ' + $Version + '.exe')
 
-if (-not (Test-Path -LiteralPath $zipPath)) {
-  throw "Pacote nao encontrado: $zipPath"
+if (-not (Test-Path -LiteralPath $installerPath)) {
+  throw "Instalador nao encontrado: $installerPath"
 }
 
 $gh = 'C:\Program Files\GitHub CLI\gh.exe'
@@ -16,5 +16,5 @@ if (-not (Test-Path -LiteralPath $gh)) { throw 'GitHub CLI nao instalado.' }
 & $gh auth status
 if ($LASTEXITCODE -ne 0) { throw 'Autentique o GitHub CLI antes de publicar.' }
 
-& $gh release create ('v' + $Version) $zipPath --repo $Repository --title ('Jarvis ' + $Version) --notes ('Release local do Jarvis ' + $Version)
+& $gh release create ('v' + $Version) $installerPath --repo $Repository --title ('Jarvis ' + $Version) --notes ('Instalador Windows do Jarvis ' + $Version)
 if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar a Release no GitHub.' }

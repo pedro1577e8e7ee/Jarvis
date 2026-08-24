@@ -13,8 +13,15 @@ async function requirePermission() {
 
 async function getContext(userDataDir) {
   if (!contextPromise) {
+    const edgeCandidates = [
+      path.join(process.env.PROGRAMFILES || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    ];
+    const executablePath = edgeCandidates.find((candidate) => require('fs').existsSync(candidate));
     contextPromise = chromium.launchPersistentContext(userDataDir, {
       headless: false,
+      ...(executablePath ? { executablePath } : {}),
       viewport: { width: 1280, height: 900 },
       args: ['--disable-blink-features=AutomationControlled'],
     }).catch((error) => {
