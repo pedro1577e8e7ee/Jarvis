@@ -25,6 +25,7 @@ export default function App() {
   const [allowScreenCapture, setAllowScreenCapture] = useState(false);
   const [allowPassiveListening, setAllowPassiveListening] = useState(false);
   const [passiveListening, setPassiveListening] = useState(false);
+  const [allowContinuousConversation, setAllowContinuousConversation] = useState(false);
   const [launchingBrowserWorkspace, setLaunchingBrowserWorkspace] = useState(false);
   const [lastAction, setLastAction] = useState('');
   const [testingExecutor, setTestingExecutor] = useState(false);
@@ -48,6 +49,9 @@ export default function App() {
   const listeningRef = useRef(false);
   const turnRef = useRef(0);
   const startRecordingRef = useRef(null);
+  const stopRecordingRef = useRef(null);
+  const continuousConversationRef = useRef(null);
+  const continuousTimerRef = useRef(null);
   const passiveStreamRef = useRef(null);
   const passiveAudioContextRef = useRef(null);
   const passiveAnalyserRef = useRef(null);
@@ -170,6 +174,7 @@ export default function App() {
 
   useEffect(() => () => {
     stopPassiveListening();
+    if (continuousTimerRef.current) clearTimeout(continuousTimerRef.current);
     releaseMicrophone();
     audioRef.current?.pause();
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
@@ -190,6 +195,7 @@ export default function App() {
         setAllowBrowserAutomation(Boolean(status.allowBrowserAutomation));
         setAllowScreenCapture(Boolean(status.allowScreenCapture));
         setAllowPassiveListening(Boolean(status.allowPassiveListening));
+        setAllowContinuousConversation(Boolean(status.allowContinuousConversation));
         setUseOpenAiVoice(status.useOpenAiVoice);
         setTtsProvider(status.ttsProvider || 'piper');
         setHasOpenAiKey(status.hasOpenAiKey);
@@ -214,12 +220,16 @@ export default function App() {
     audioRef.current = audio;
     audioUrlRef.current = url;
     setSpeaking(true);
-    audio.addEventListener('ended', () => {
-      URL.revokeObjectURL(url);
-      setSpeaking(false);
-    }, { once: true });
-    audio.addEventListener('error', () => setSpeaking(false), { once: true });
-    await audio.play();
+    await new Promise((resolve) => {
+      const finish = () => {
+        URL.revokeObjectURL(url);
+        setSpeaking(false);
+        resolve();
+      };
+      audio.addEventListener('ended', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      audio.play().catch(finish);
+    });
   }, []);
 
   const playNativeSpeech = useCallback((text) => {
@@ -235,11 +245,24 @@ export default function App() {
     utterance.voice = voices.find((voice) => /antonio|daniel/i.test(voice.name) && /pt[-_]BR|portugu/i.test(voice.lang + ' ' + voice.name))
       || voices.find((voice) => /pt[-_]BR/i.test(voice.lang))
       || null;
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+    const finished = new Promise((resolve) => {
+      utterance.onend = () => { setSpeaking(false); resolve(); };
+      utterance.onerror = () => { setSpeaking(false); resolve(); };
+    });
     setSpeaking(true);
     window.speechSynthesis.speak(utterance);
+    return finished;
   }, []);
+
+  useEffect(() => {
+    const removeReminderListener = window.jarvis?.onReminderDue?.(async (reminder) => {
+      setAssistantResponse(reminder.text);
+      setStatus('LEMBRETE: ' + reminder.text);
+      if (reminder.audioBuffer) await playSpeech(reminder.audioBuffer, reminder.audioMimeType);
+      else playNativeSpeech(reminder.text);
+    });
+    return () => removeReminderListener?.();
+  }, [playNativeSpeech, playSpeech]);
 
   const handlePing = useCallback(async () => {
     if (!window.jarvis) {
@@ -269,10 +292,11 @@ export default function App() {
       if (turn !== turnRef.current) return;
       setStatus(result.action ? 'Abri no PC: ' + (result.action.label || result.action.name) : 'Resposta reproduzida.');
     } else {
-      playNativeSpeech(result.text);
+      await playNativeSpeech(result.text);
       setStatus(result.action ? 'Abri no PC: ' + (result.action.label || result.action.name) : 'Voz nativa reproduzida.');
     }
-  }, [playNativeSpeech, playSpeech]);
+    if (allowContinuousConversation) continuousConversationRef.current?.();
+  }, [allowContinuousConversation, playNativeSpeech, playSpeech]);
 
   const sendRecordingForTranscription = useCallback(async (blob) => {
     if (!window.jarvis?.transcribeAudio) {
@@ -370,7 +394,7 @@ export default function App() {
         console.log('[Renderer] Gravacao encerrada. Bytes:', blob.size);
         if (blob.size > 0) await sendRecordingForTranscription(blob);
         else setStatus('Nao gravei audio. Clique em FALAR e tente de novo.');
-        if (allowPassiveListening) startPassiveListening();
+        if (allowPassiveListening && !continuousTimerRef.current) startPassiveListening();
       };
       recorder.onerror = (event) => {
         console.error('[Renderer] Erro do MediaRecorder:', event.error);
@@ -410,6 +434,10 @@ export default function App() {
   }, [allowPassiveListening, keysConfigured, passiveListening, startPassiveListening]);
 
   const stopRecording = useCallback(() => {
+    if (continuousTimerRef.current) {
+      clearTimeout(continuousTimerRef.current);
+      continuousTimerRef.current = null;
+    }
     const recorder = recorderRef.current;
     setStatus('Parou. Vou executar o que voce pediu...');
     if (!recorder) {
@@ -429,6 +457,21 @@ export default function App() {
     recorderRef.current = null;
     if (blob.size > 0) sendRecordingForTranscription(blob);
   }, [releaseMicrophone, sendRecordingForTranscription]);
+
+  const startContinuousConversation = useCallback(() => {
+    if (!allowContinuousConversation || listeningRef.current || transcribing) return;
+    setStatus('CONVERSA CONTÍNUA: fale agora. Vou ouvir por 4 segundos.');
+    startRecordingRef.current?.();
+    continuousTimerRef.current = setTimeout(() => {
+      continuousTimerRef.current = null;
+      stopRecordingRef.current?.();
+    }, 4000);
+  }, [allowContinuousConversation, transcribing]);
+
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+    continuousConversationRef.current = startContinuousConversation;
+  }, [startContinuousConversation, stopRecording]);
 
   useEffect(() => {
     const removeShortcutListener = window.jarvis?.onGlobalShortcut?.(() => {
@@ -454,6 +497,7 @@ export default function App() {
         allowBrowserAutomation,
         allowScreenCapture,
         allowPassiveListening,
+        allowContinuousConversation,
         useOpenAiVoice,
         ttsProvider,
       });
@@ -489,6 +533,7 @@ export default function App() {
     useOpenAiVoice,
     ttsProvider,
     allowPassiveListening,
+    allowContinuousConversation,
   ]);
 
   const openAuthorizedBrowserWorkspace = useCallback(async () => {
@@ -716,6 +761,19 @@ export default function App() {
             >
               {passiveListening ? 'Desativar escuta passiva' : 'Ativar escuta passiva agora'}
             </button>
+
+            <p className="perm-title">Modo de Conversação Contínua</p>
+            <label className={'perm-card ' + (allowContinuousConversation ? 'selected' : '')}>
+              <input
+                type="checkbox"
+                checked={allowContinuousConversation}
+                onChange={(event) => setAllowContinuousConversation(event.target.checked)}
+              />
+              <span>
+                <strong>Ouvir por 4 segundos após cada resposta</strong>
+                Depois que a voz terminar, o Jarvis abre automaticamente uma janela curta para você continuar falando.
+              </span>
+            </label>
 
             <button
               className="cancel-settings-btn"

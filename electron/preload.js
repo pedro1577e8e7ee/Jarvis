@@ -28,6 +28,12 @@ contextBridge.exposeInMainWorld('jarvis', {
   testOpenGoogle: () => ipcRenderer.invoke('executor:test-open-google'),
   sendTextCommand: (text) => ipcRenderer.invoke('jarvis:text-command', { text }),
   analyzeScreen: (question) => ipcRenderer.invoke('jarvis:screen-command', { question }),
+  onReminderDue: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, reminder) => callback(reminder);
+    ipcRenderer.on('reminder:due', listener);
+    return () => ipcRenderer.removeListener('reminder:due', listener);
+  },
   onGlobalShortcut: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = () => callback();

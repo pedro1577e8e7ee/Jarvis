@@ -6,6 +6,9 @@ const {
   abrirAplicativo,
   abrirQualquerCoisa,
   executarComandoWindows,
+  verificarStatusSistema,
+  fecharProcesso,
+  agendarLembrete,
 } = require('./automations');
 const { capturePrimaryScreen } = require('./vision');
 const {
@@ -119,6 +122,43 @@ const systemTools = [
       name: 'abrirWorkspaceChrome',
       description: 'Abre Gmail, Google Agenda e Google Drive no navegador.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'verificarStatusSistema',
+      description: 'Consulta CPU, memoria RAM e bateria do computador. Operacao somente de leitura.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'fecharProcesso',
+      description: 'Fecha um aplicativo pelo nome no Windows. Nao use para processos do sistema.',
+      parameters: {
+        type: 'object',
+        properties: { nomeApp: { type: 'string', description: 'Nome simples do aplicativo, por exemplo Chrome ou Spotify.' } },
+        required: ['nomeApp'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'agendarLembrete',
+      description: 'Agenda um lembrete local persistente que exibira notificacao nativa e voz quando chegar o horario.',
+      parameters: {
+        type: 'object',
+        properties: {
+          texto: { type: 'string', description: 'Texto do lembrete.' },
+          atrasoMs: { type: 'number', description: 'Tempo ate o lembrete em milissegundos.' },
+        },
+        required: ['texto', 'atrasoMs'],
+        additionalProperties: false,
+      },
     },
   },
   {
@@ -286,6 +326,12 @@ async function executeIntent(intent) {
     action = { success: true, name: 'abrirWorkspaceChrome', label: intent.label, ...await abrirWorkspaceChrome() };
   } else if (intent.type === 'workspace-personalized') {
     action = { success: true, name: 'abrirWorkspacePersonalizado', label: intent.label, ...await abrirWorkspacePersonalizado(intent.nomeWorkspace) };
+  } else if (intent.type === 'system-status') {
+    action = { name: 'verificarStatusSistema', ...await verificarStatusSistema() };
+  } else if (intent.type === 'close-process') {
+    action = { name: 'fecharProcesso', label: intent.label, ...await fecharProcesso(intent.nomeApp) };
+  } else if (intent.type === 'reminder') {
+    action = { name: 'agendarLembrete', text: intent.text, label: intent.label, ...await agendarLembrete(intent.text, intent.delayMs) };
   } else if (intent.type === 'folder') {
     action = {
       success: true,
@@ -322,6 +368,12 @@ async function executeToolCall(toolCall) {
       label: args.nomeWorkspace,
       ...await abrirWorkspacePersonalizado(args.nomeWorkspace),
     };
+  } else if (name === 'verificarStatusSistema') {
+    action = { name, ...await verificarStatusSistema() };
+  } else if (name === 'fecharProcesso') {
+    action = { name, label: args.nomeApp, ...await fecharProcesso(args.nomeApp) };
+  } else if (name === 'agendarLembrete') {
+    action = { name, text: args.texto, label: args.texto, ...await agendarLembrete(args.texto, args.atrasoMs) };
   } else if (name === 'olharMinhaTela') {
     const analysis = await analyzeCurrentScreen(args.pergunta || 'Descreva de forma objetiva o que esta visivel na tela.');
     action = {

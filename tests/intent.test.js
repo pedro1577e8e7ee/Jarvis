@@ -39,3 +39,24 @@ test('reconhece pedido de visão da tela', () => {
     label: 'análise da tela',
   });
 });
+
+test('extrai lembrete com duração em minutos', () => {
+  assert.deepEqual(parseIntent('Jarvis, me lembre em 5 minutos de revisar o contrato'), {
+    type: 'reminder',
+    delayMs: 300000,
+    text: 'revisar o contrato',
+    label: 'lembrete: revisar o contrato',
+  });
+});
+
+test('extrai status do computador e fechamento de aplicativo', () => {
+  assert.deepEqual(parseIntent('qual o status do meu computador'), {
+    type: 'system-status',
+    label: 'status do sistema',
+  });
+  assert.deepEqual(parseIntent('fechar o Spotify'), {
+    type: 'close-process',
+    nomeApp: 'spotify',
+    label: 'fechar spotify',
+  });
+});

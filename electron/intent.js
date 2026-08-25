@@ -125,6 +125,30 @@ function parseIntent(userText) {
     return { type: 'screen', label: 'análise da tela' };
   }
 
+  const reminder = text.match(/\b(?:me lembre|me lembra|lembre-me|lembrete)\s+(?:em|daqui a)\s+(\d+)\s*(segundo|segundos|minuto|minutos|hora|horas|dia|dias)\s+(?:de|sobre|que)\s+(.+)$/);
+  if (reminder) {
+    const amount = Number(reminder[1]);
+    const unit = reminder[2];
+    const multiplier = unit.startsWith('segundo') ? 1000
+      : unit.startsWith('minuto') ? 60_000
+        : unit.startsWith('hora') ? 3_600_000
+          : 86_400_000;
+    const task = reminder[3].trim();
+    if (amount > 0 && task) {
+      return { type: 'reminder', delayMs: amount * multiplier, text: task, label: 'lembrete: ' + task };
+    }
+  }
+
+  const statusRequest = /\b(status|situacao|situação|uso)\b.*\b(sistema|pc|computador|cpu|memoria|memória|bateria|ram)\b/.test(text)
+    || /\bcomo esta|como está\b.*\b(meu pc|meu computador|o pc|o computador)\b/.test(text);
+  if (statusRequest) return { type: 'system-status', label: 'status do sistema' };
+
+  const closeRequest = text.match(/\b(?:fechar|feche|matar|mate|encerrar|encerre|finalizar|finalize)\s+(?:o|a|os|as|app|aplicativo|processo)?\s*(.+)$/);
+  if (closeRequest) {
+    const nomeApp = closeRequest[1].replace(/\b(por favor|agora|travado|travado)/g, '').trim();
+    if (nomeApp) return { type: 'close-process', nomeApp, label: 'fechar ' + nomeApp };
+  }
+
   if (url && (wantsOpen || /^https?:\/\//i.test(raw.trim()))) {
     return { type: 'site', url, label: url };
   }
@@ -185,6 +209,18 @@ function confirmationFor(action, userName = 'Chefe') {
     return action.partial
       ? 'Feito, ' + address + '. O workspace foi aberto, mas alguns itens opcionais não estavam disponíveis.'
       : 'Feito, ' + address + '. O workspace ' + (action.workspace || label) + ' foi aberto.';
+  }
+  if (action.name === 'verificarStatusSistema') {
+    const cpu = action.cpuPercent ?? 0;
+    const used = action.memory?.usedPercent ?? 0;
+    const battery = action.battery?.percent == null ? '' : ' Bateria em ' + action.battery.percent + ' por cento.';
+    return 'Chefe, o uso da CPU está em ' + cpu + ' por cento e a memória em ' + used + ' por cento.' + battery;
+  }
+  if (action.name === 'fecharProcesso') {
+    return 'Feito, ' + address + '. Fechei o processo ' + (action.process || label) + '.';
+  }
+  if (action.name === 'agendarLembrete') {
+    return 'Certo, ' + address + '. Vou lembrar você de ' + (action.text || label) + ' no horário programado.';
   }
   const variants = [
     'Pronto, ' + address + '. ' + label + ' já está aberto.',

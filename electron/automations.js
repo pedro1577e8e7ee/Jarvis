@@ -1,7 +1,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs/promises');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const { promisify } = require('util');
 const {
   openUrl,
@@ -22,6 +22,8 @@ const { abrirQualquerCoisa: openAnythingOnPc } = require('./pc-access');
 const { getApiKeyStatus } = require('./settings');
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+const { scheduleReminder } = require('./reminders');
 
 const WINDOWS_PROTOCOLS = {
   whatsapp: 'whatsapp://',
@@ -177,6 +179,85 @@ async function abrirWorkspaceChrome() {
     label: 'workspace Gmail, Agenda e Drive',
     method: result.method,
   };
+}
+
+async function sampleCpuUsage() {
+  const read = () => os.cpus().reduce((total, cpu) => {
+    const times = cpu.times;
+    return {
+      idle: total.idle + times.idle,
+      total: total.total + Object.values(times).reduce((sum, value) => sum + value, 0),
+    };
+  }, { idle: 0, total: 0 });
+  const before = read();
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const after = read();
+  const totalDelta = after.total - before.total;
+  const idleDelta = after.idle - before.idle;
+  return totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
+}
+
+async function readBatteryStatus() {
+  if (process.platform !== 'win32') return null;
+  try {
+    const { stdout } = await execFileAsync('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json -Compress',
+    ], { windowsHide: true, timeout: 5000, maxBuffer: 64 * 1024 });
+    const parsed = JSON.parse(stdout.trim() || 'null');
+    const battery = Array.isArray(parsed) ? parsed[0] : parsed;
+    return battery ? {
+      percent: Number.isFinite(Number(battery.EstimatedChargeRemaining)) ? Number(battery.EstimatedChargeRemaining) : null,
+      status: battery.BatteryStatus ?? null,
+    } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function verificarStatusSistema() {
+  await assertFullPcAccess();
+  const totalMemory = os.totalmem();
+  const freeMemory = os.freemem();
+  return {
+    cpuPercent: await sampleCpuUsage(),
+    memory: {
+      totalBytes: totalMemory,
+      freeBytes: freeMemory,
+      usedPercent: Math.round(((totalMemory - freeMemory) / totalMemory) * 100),
+    },
+    battery: await readBatteryStatus(),
+    platform: process.platform,
+    hostname: os.hostname(),
+    success: true,
+    label: 'status do sistema',
+  };
+}
+
+const PROTECTED_PROCESSES = new Set([
+  'system', 'system idle process', 'smss', 'csrss', 'wininit', 'services', 'lsass',
+  'winlogon', 'explorer', 'dwm', 'sihost', 'fontdrvhost', 'registry',
+]);
+
+async function fecharProcesso(nomeApp) {
+  await assertFullPcAccess();
+  if (process.platform !== 'win32') throw new Error('Fechar processos por comando esta disponivel somente no Windows.');
+  const raw = String(nomeApp || '').trim().toLowerCase().replace(/\.exe$/, '');
+  const normalized = normalizeCommand(raw);
+  if (!normalized || !/^[a-z0-9][a-z0-9 ._-]{0,63}$/.test(normalized) || PROTECTED_PROCESSES.has(normalized)) {
+    throw new Error('Processo invalido ou protegido.');
+  }
+  const imageName = normalized.replace(/\s+/g, '') + '.exe';
+  await execFileAsync('taskkill.exe', ['/F', '/IM', imageName], {
+    windowsHide: true,
+    timeout: 10000,
+    maxBuffer: 64 * 1024,
+  });
+  return { process: imageName, success: true, label: imageName, method: 'taskkill' };
+}
+
+function agendarLembrete(text, delayMs) {
+  return scheduleReminder({ text, delayMs });
 }
 
 function resolveWorkspaceProfile(nomeWorkspace) {
@@ -377,5 +458,8 @@ module.exports = {
   abrirAplicativo,
   abrirQualquerCoisa,
   executarComandoWindows,
+  verificarStatusSistema,
+  fecharProcesso,
+  agendarLembrete,
   closeBrowser,
 };

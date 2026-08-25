@@ -8,6 +8,7 @@ const { abrirSite } = require('./automations');
 const { warmupCatalog } = require('./pc-access');
 const { createQueue } = require('./action-queue');
 const { openAuthorizedWorkspace } = require('./browser-workspace');
+const { initReminders } = require('./reminders');
 
 // Detect dev mode (Vite dev server running)
 // Plain `npm run electron` must open the built renderer. Development mode is
@@ -233,6 +234,20 @@ app.whenReady().then(async () => {
     console.log('[Jarvis] Permissao do PC:', access.pcAccessMode, 'execucao=', access.allowSystemControl);
     warmupCatalog().catch((error) => logError('Falha ao indexar apps do Windows:', error));
     mainWindow = await createWindow();
+    await initReminders(async (reminder) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      let speech = null;
+      try {
+        speech = await generateSpeech(reminder.text);
+      } catch (error) {
+        logError('Falha ao gerar voz do lembrete:', error);
+      }
+      mainWindow.webContents.send('reminder:due', {
+        text: reminder.text,
+        audioBuffer: speech?.audioBuffer || null,
+        audioMimeType: speech?.mimeType || null,
+      });
+    });
     registerGlobalShortcut();
   } catch (error) {
     logError('Falha ao inicializar a janela principal:', error);

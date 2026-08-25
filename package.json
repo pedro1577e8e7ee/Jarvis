@@ -1,6 +1,6 @@
 {
   "name": "jarvis-ai",
-  "version": "3.0.1",
+  "version": "4.0.0",
   "description": "Jarvis — Assistente de IA Pessoal",
   "main": "electron/main.js",
   "scripts": {
