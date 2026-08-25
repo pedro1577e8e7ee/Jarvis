@@ -306,6 +306,13 @@ export default function App() {
     if (blob.size > 0) sendRecordingForTranscription(blob);
   }, [releaseMicrophone, sendRecordingForTranscription]);
 
+  useEffect(() => {
+    const removeShortcutListener = window.jarvis?.onGlobalShortcut?.(() => {
+      if (!listeningRef.current && !transcribing) startRecording();
+    });
+    return () => removeShortcutListener?.();
+  }, [startRecording, transcribing]);
+
   const saveSettings = useCallback(async (event) => {
     event.preventDefault();
     setSettingsError('');

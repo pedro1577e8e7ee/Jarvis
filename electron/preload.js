@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('jarvis', {
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   testOpenGoogle: () => ipcRenderer.invoke('executor:test-open-google'),
   sendTextCommand: (text) => ipcRenderer.invoke('jarvis:text-command', { text }),
+  onGlobalShortcut: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = () => callback();
+    ipcRenderer.on('global-shortcut:activate', listener);
+    return () => ipcRenderer.removeListener('global-shortcut:activate', listener);
+  },
   automationQueue: {
     list: () => ipcRenderer.invoke('automation-queue:list'),
     enqueue: (task) => ipcRenderer.invoke('automation-queue:enqueue', task),

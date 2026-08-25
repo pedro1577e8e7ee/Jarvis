@@ -1,6 +1,7 @@
 const {
   abrirSite,
   abrirWorkspaceChrome,
+  abrirWorkspacePersonalizado,
   gerenciarPastas,
   abrirAplicativo,
   abrirQualquerCoisa,
@@ -94,6 +95,21 @@ const systemTools = [
       name: 'abrirWorkspaceChrome',
       description: 'Abre Gmail, Google Agenda e Google Drive no navegador.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'abrirWorkspacePersonalizado',
+      description: 'Abre em sequência um workspace local predefinido, como trabalho, desenvolvimento ou estudo. Continua com os itens restantes se um aplicativo opcional não estiver instalado.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nomeWorkspace: { type: 'string', enum: ['trabalho', 'desenvolvimento', 'dev', 'estudo'] },
+        },
+        required: ['nomeWorkspace'],
+        additionalProperties: false,
+      },
     },
   },
   {
@@ -199,6 +215,8 @@ async function executeIntent(intent) {
     action = { success: true, name: 'abrirSite', label: intent.label, ...await abrirSite(intent.url) };
   } else if (intent.type === 'workspace') {
     action = { success: true, name: 'abrirWorkspaceChrome', label: intent.label, ...await abrirWorkspaceChrome() };
+  } else if (intent.type === 'workspace-personalized') {
+    action = { success: true, name: 'abrirWorkspacePersonalizado', label: intent.label, ...await abrirWorkspacePersonalizado(intent.nomeWorkspace) };
   } else if (intent.type === 'folder') {
     action = {
       success: true,
@@ -228,6 +246,13 @@ async function executeToolCall(toolCall) {
     action = { success: true, name: 'abrirSite', label: args.url, ...await abrirSite(args.url) };
   } else if (name === 'abrirWorkspaceChrome') {
     action = { success: true, name: 'abrirWorkspaceChrome', ...await abrirWorkspaceChrome() };
+  } else if (name === 'abrirWorkspacePersonalizado') {
+    action = {
+      success: true,
+      name,
+      label: args.nomeWorkspace,
+      ...await abrirWorkspacePersonalizado(args.nomeWorkspace),
+    };
   } else if (name === 'gerenciarPastas') {
     action = {
       success: true,

@@ -40,6 +40,29 @@ const BUILTIN_APPS = {
   'gerenciador de arquivos': 'explorer.exe',
 };
 
+const PERSONALIZED_WORKSPACES = {
+  trabalho: {
+    label: 'modo trabalho',
+    apps: ['edge', 'spotify'],
+    folders: ['desktop'],
+  },
+  desenvolvimento: {
+    label: 'workspace de desenvolvimento',
+    apps: ['visual studio code', 'obsidian', 'spotify'],
+    folders: ['desktop'],
+  },
+  dev: {
+    label: 'workspace de desenvolvimento',
+    apps: ['visual studio code', 'obsidian', 'spotify'],
+    folders: ['desktop'],
+  },
+  estudo: {
+    label: 'workspace de estudo',
+    apps: ['obsidian', 'edge'],
+    folders: ['documentos'],
+  },
+};
+
 function normalizeCommand(value) {
   return String(value || '').trim().toLowerCase()
     .normalize('NFD')
@@ -153,6 +176,54 @@ async function abrirWorkspaceChrome() {
     success: true,
     label: 'workspace Gmail, Agenda e Drive',
     method: result.method,
+  };
+}
+
+function resolveWorkspaceProfile(nomeWorkspace) {
+  const normalized = normalizeCommand(nomeWorkspace)
+    .replace(/^workspace\s+(de|do|da)\s+/, '')
+    .replace(/^modo\s+/, '')
+    .trim();
+  return PERSONALIZED_WORKSPACES[normalized] || null;
+}
+
+async function abrirWorkspacePersonalizado(nomeWorkspace) {
+  await assertFullPcAccess();
+  const profile = resolveWorkspaceProfile(nomeWorkspace);
+  if (!profile) {
+    throw new Error('Workspace nao configurado: ' + String(nomeWorkspace || '').trim());
+  }
+
+  const results = [];
+  const failures = [];
+  for (const appName of profile.apps) {
+    try {
+      results.push({ kind: 'app', ...await abrirAplicativo(appName) });
+    } catch (error) {
+      failures.push({ kind: 'app', target: appName, error: error.message });
+      console.error('[WORKSPACE] Falha ao abrir aplicativo opcional:', appName, error.message);
+    }
+  }
+  for (const folderName of profile.folders) {
+    try {
+      results.push({ kind: 'folder', ...await gerenciarPastas('abrir', folderName) });
+    } catch (error) {
+      failures.push({ kind: 'folder', target: folderName, error: error.message });
+      console.error('[WORKSPACE] Falha ao abrir pasta:', folderName, error.message);
+    }
+  }
+
+  if (!results.length) {
+    throw new Error('Nenhum item do workspace foi aberto.');
+  }
+  return {
+    workspace: profile.label,
+    results,
+    failures,
+    partial: failures.length > 0,
+    success: true,
+    label: profile.label,
+    method: 'sequential-batch',
   };
 }
 
@@ -300,6 +371,7 @@ module.exports = {
   abrirSite,
   abrirNavegador,
   abrirWorkspaceChrome,
+  abrirWorkspacePersonalizado,
   abrirPasta,
   gerenciarPastas,
   abrirAplicativo,

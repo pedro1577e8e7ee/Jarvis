@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, globalShortcut } = require('electron');
 const path = require('path');
 const { transcribeAudio } = require('./transcription');
 const { respondToUser } = require('./llm');
@@ -16,6 +16,28 @@ const isDev = !app.isPackaged && process.env.JARVIS_DEV_SERVER === '1';
 const devServerUrl = 'http://localhost:5173';
 let mainWindow = null;
 let actionQueue = null;
+
+function activateMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(true, 'floating');
+  mainWindow.webContents.send('global-shortcut:activate');
+}
+
+function registerGlobalShortcut() {
+  const accelerator = process.platform === 'darwin'
+    ? 'Command+Shift+J'
+    : 'CommandOrControl+Shift+J';
+  const registered = globalShortcut.register(accelerator, activateMainWindow);
+  if (!registered) {
+    logError('Nao foi possivel registrar o atalho global ' + accelerator + '.', '');
+    return false;
+  }
+  console.log('[Jarvis] Atalho global registrado:', accelerator);
+  return true;
+}
 
 function getActionQueue() {
   if (!actionQueue) actionQueue = createQueue(app.getPath('userData'));
@@ -211,6 +233,7 @@ app.whenReady().then(async () => {
     console.log('[Jarvis] Permissao do PC:', access.pcAccessMode, 'execucao=', access.allowSystemControl);
     warmupCatalog().catch((error) => logError('Falha ao indexar apps do Windows:', error));
     mainWindow = await createWindow();
+    registerGlobalShortcut();
   } catch (error) {
     logError('Falha ao inicializar a janela principal:', error);
   }
@@ -228,6 +251,10 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 process.on('uncaughtException', (error) => {

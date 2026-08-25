@@ -124,6 +124,11 @@ function parseIntent(userText) {
     return { type: 'site', url, label: url };
   }
 
+  if (/\b(modo\s+(trabalho|desenvolvimento|dev|estudo)|workspace\s+(de|do|da)\s+(desenvolvimento|dev|estudo|trabalho)|workspace de desenvolvimento|abrir workspace de desenvolvimento)\b/.test(text)) {
+    const workspaceName = /\b(desenvolvimento|dev|estudo|trabalho)\b/.exec(text)?.[1] || 'trabalho';
+    return { type: 'workspace-personalized', nomeWorkspace: workspaceName, label: 'workspace ' + workspaceName };
+  }
+
   if (/\b(workspace|meu workspace|ambiente de trabalho|espaco de trabalho|abre o trabalho|gmail e agenda|agenda e drive|abre tudo do google|abre meu trabalho|google workspace|workspace do google|workspace do navegador|workspace do chrome|gmail agenda drive)\b/.test(text)) {
     return { type: 'workspace', label: 'workspace Gmail, Agenda e Drive' };
   }
@@ -171,6 +176,11 @@ function confirmationFor(action, userName = 'Chefe') {
   if (action.name === 'abrirWorkspaceChrome') {
     return 'Feito, ' + address + '. Seu workspace com Gmail, Agenda e Drive já está aberto.';
   }
+  if (action.name === 'abrirWorkspacePersonalizado') {
+    return action.partial
+      ? 'Feito, ' + address + '. O workspace foi aberto, mas alguns itens opcionais não estavam disponíveis.'
+      : 'Feito, ' + address + '. O workspace ' + (action.workspace || label) + ' foi aberto.';
+  }
   const variants = [
     'Pronto, ' + address + '. ' + label + ' já está aberto.',
     'Feito. Coloquei ' + label + ' na tela.',
@@ -190,6 +200,8 @@ if (require.main === module) {
     'abre a area de trabalho',
     'pesquisa musica no youtube',
     'abre o workspace',
+    'Jarvis, modo trabalho',
+    'abrir workspace de desenvolvimento',
     'abre o navegador',
     'abre o discord',
     'abre o steam',
