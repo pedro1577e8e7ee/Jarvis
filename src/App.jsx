@@ -23,6 +23,8 @@ export default function App() {
   const [allowSystemControl, setAllowSystemControl] = useState(true);
   const [allowBrowserAutomation, setAllowBrowserAutomation] = useState(false);
   const [allowScreenCapture, setAllowScreenCapture] = useState(false);
+  const [allowPassiveListening, setAllowPassiveListening] = useState(false);
+  const [passiveListening, setPassiveListening] = useState(false);
   const [launchingBrowserWorkspace, setLaunchingBrowserWorkspace] = useState(false);
   const [lastAction, setLastAction] = useState('');
   const [testingExecutor, setTestingExecutor] = useState(false);
@@ -45,10 +47,32 @@ export default function App() {
   const audioUrlRef = useRef(null);
   const listeningRef = useRef(false);
   const turnRef = useRef(0);
+  const startRecordingRef = useRef(null);
+  const passiveStreamRef = useRef(null);
+  const passiveAudioContextRef = useRef(null);
+  const passiveAnalyserRef = useRef(null);
+  const passiveAnimationRef = useRef(null);
+  const passiveLastClapRef = useRef(0);
+  const passiveNoiseFloorRef = useRef(0.02);
+  const passiveStartingRef = useRef(false);
+  const passiveAutoStartedRef = useRef(false);
 
   const releaseMicrophone = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+  }, []);
+
+  const stopPassiveListening = useCallback(() => {
+    if (passiveAnimationRef.current) cancelAnimationFrame(passiveAnimationRef.current);
+    passiveAnimationRef.current = null;
+    passiveStreamRef.current?.getTracks().forEach((track) => track.stop());
+    passiveStreamRef.current = null;
+    const context = passiveAudioContextRef.current;
+    passiveAudioContextRef.current = null;
+    passiveAnalyserRef.current = null;
+    if (context && context.state !== 'closed') context.close().catch(() => {});
+    passiveStartingRef.current = false;
+    setPassiveListening(false);
   }, []);
 
   const stopAllSpeech = useCallback(() => {
@@ -62,12 +86,95 @@ export default function App() {
     setSpeaking(false);
   }, []);
 
+  const playWakeFeedback = useCallback(() => {
+    setStatus('DUAS PALMAS DETECTADAS. Jarvis acordou; fale o comando.');
+    try {
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.18);
+      oscillator.addEventListener('ended', () => context.close().catch(() => {}), { once: true });
+    } catch (error) {
+      console.debug('[Renderer] Feedback sonoro indisponível:', error.message);
+    }
+  }, []);
+
+  const startPassiveListening = useCallback(async () => {
+    if (passiveListening || passiveStartingRef.current || listeningRef.current || transcribing) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) {
+      setStatus('A escuta passiva não está disponível neste ambiente.');
+      return;
+    }
+
+    passiveStartingRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      });
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.15;
+      context.createMediaStreamSource(stream).connect(analyser);
+      passiveStreamRef.current = stream;
+      passiveAudioContextRef.current = context;
+      passiveAnalyserRef.current = analyser;
+      passiveNoiseFloorRef.current = 0.02;
+      passiveLastClapRef.current = 0;
+      passiveStartingRef.current = false;
+      setPassiveListening(true);
+      setStatus('ESCUTA PASSIVA ATIVA. Duas palmas acordam o Jarvis.');
+
+      const samples = new Uint8Array(analyser.fftSize);
+      const inspect = () => {
+        if (!passiveAnalyserRef.current || !passiveStreamRef.current) return;
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        let peak = 0;
+        for (const sample of samples) {
+          const normalized = (sample - 128) / 128;
+          sum += normalized * normalized;
+          peak = Math.max(peak, Math.abs(normalized));
+        }
+        const rms = Math.sqrt(sum / samples.length);
+        const floor = passiveNoiseFloorRef.current;
+        passiveNoiseFloorRef.current = floor * 0.96 + Math.min(rms, floor * 2) * 0.04;
+        const now = performance.now();
+        const isTransient = rms > Math.max(0.12, floor * 3.4) && peak > 0.38;
+        if (isTransient && now - passiveLastClapRef.current > 180) {
+          const previous = passiveLastClapRef.current;
+          passiveLastClapRef.current = now;
+          if (previous && now - previous <= 1000) {
+            passiveLastClapRef.current = 0;
+            stopPassiveListening();
+            playWakeFeedback();
+            setTimeout(() => startRecordingRef.current?.(), 120);
+          }
+        }
+        passiveAnimationRef.current = requestAnimationFrame(inspect);
+      };
+      passiveAnimationRef.current = requestAnimationFrame(inspect);
+    } catch (error) {
+      passiveStartingRef.current = false;
+      stopPassiveListening();
+      setStatus('Permita o acesso ao microfone para ativar a escuta passiva.');
+      console.error('[Renderer] Não foi possível ativar a escuta passiva:', error);
+    }
+  }, [passiveListening, playWakeFeedback, stopPassiveListening, transcribing]);
+
   useEffect(() => () => {
+    stopPassiveListening();
     releaseMicrophone();
     audioRef.current?.pause();
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     window.speechSynthesis?.cancel();
-  }, [releaseMicrophone]);
+  }, [releaseMicrophone, stopPassiveListening]);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +189,7 @@ export default function App() {
         setAllowSystemControl(status.allowSystemControl);
         setAllowBrowserAutomation(Boolean(status.allowBrowserAutomation));
         setAllowScreenCapture(Boolean(status.allowScreenCapture));
+        setAllowPassiveListening(Boolean(status.allowPassiveListening));
         setUseOpenAiVoice(status.useOpenAiVoice);
         setTtsProvider(status.ttsProvider || 'piper');
         setHasOpenAiKey(status.hasOpenAiKey);
@@ -220,6 +328,7 @@ export default function App() {
       return;
     }
 
+    stopPassiveListening();
     stopAllSpeech();
     setTranscribing(false);
     turnRef.current += 1;
@@ -261,6 +370,7 @@ export default function App() {
         console.log('[Renderer] Gravacao encerrada. Bytes:', blob.size);
         if (blob.size > 0) await sendRecordingForTranscription(blob);
         else setStatus('Nao gravei audio. Clique em FALAR e tente de novo.');
+        if (allowPassiveListening) startPassiveListening();
       };
       recorder.onerror = (event) => {
         console.error('[Renderer] Erro do MediaRecorder:', event.error);
@@ -285,7 +395,19 @@ export default function App() {
       setListening(false);
       setStatus('Permita o acesso ao microfone para falar com o Jarvis.');
     }
-  }, [releaseMicrophone, sendRecordingForTranscription, stopAllSpeech]);
+  }, [allowPassiveListening, releaseMicrophone, sendRecordingForTranscription, startPassiveListening, stopAllSpeech, stopPassiveListening]);
+
+  useEffect(() => {
+    startRecordingRef.current = startRecording;
+  }, [startRecording]);
+
+  useEffect(() => {
+    if (!allowPassiveListening) passiveAutoStartedRef.current = false;
+    if (keysConfigured && allowPassiveListening && !passiveListening && !passiveAutoStartedRef.current) {
+      passiveAutoStartedRef.current = true;
+      startPassiveListening();
+    }
+  }, [allowPassiveListening, keysConfigured, passiveListening, startPassiveListening]);
 
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
@@ -331,6 +453,7 @@ export default function App() {
         allowSystemControl,
         allowBrowserAutomation,
         allowScreenCapture,
+        allowPassiveListening,
         useOpenAiVoice,
         ttsProvider,
       });
@@ -365,6 +488,7 @@ export default function App() {
     userName,
     useOpenAiVoice,
     ttsProvider,
+    allowPassiveListening,
   ]);
 
   const openAuthorizedBrowserWorkspace = useCallback(async () => {
@@ -379,6 +503,22 @@ export default function App() {
       setLaunchingBrowserWorkspace(false);
     }
   }, []);
+
+  const togglePassiveListening = useCallback(() => {
+    if (passiveListening) {
+      stopPassiveListening();
+      setAllowPassiveListening(false);
+      setStatus('Escuta passiva desativada.');
+      return;
+    }
+    if (!keysConfigured) {
+      setSettingsOpen(true);
+      setSettingsError('Configure a chave do provedor antes de usar o gatilho de palmas.');
+      return;
+    }
+    setAllowPassiveListening(true);
+    startPassiveListening();
+  }, [keysConfigured, passiveListening, startPassiveListening, stopPassiveListening]);
 
   const handleMicrophone = useCallback(() => {
     if (!keysConfigured) {
@@ -555,6 +695,27 @@ export default function App() {
                 O Jarvis captura a tela principal somente quando você pedir e envia a imagem ao modelo de visão configurado. A captura não é salva.
               </span>
             </label>
+
+            <p className="perm-title">Gatilho de Palmas (escuta passiva)</p>
+            <label className={'perm-card ' + (allowPassiveListening ? 'selected' : '')}>
+              <input
+                type="checkbox"
+                checked={allowPassiveListening}
+                onChange={(event) => setAllowPassiveListening(event.target.checked)}
+              />
+              <span>
+                <strong>Ativar duas palmas para acordar</strong>
+                Mantém uma análise leve do microfone. Duas palmas em até 1 segundo iniciam a gravação; fica desligado por padrão.
+              </span>
+            </label>
+            <button
+              className="executor-test-btn"
+              type="button"
+              disabled={savingSettings || !keysConfigured}
+              onClick={togglePassiveListening}
+            >
+              {passiveListening ? 'Desativar escuta passiva' : 'Ativar escuta passiva agora'}
+            </button>
 
             <button
               className="cancel-settings-btn"

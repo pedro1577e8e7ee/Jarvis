@@ -14,6 +14,7 @@ async function getStore() {
         allow_system_control: { type: 'boolean', default: true },
         allowBrowserAutomation: { type: 'boolean', default: false },
         allowScreenCapture: { type: 'boolean', default: false },
+        allowPassiveListening: { type: 'boolean', default: false },
         pcAccessMode: { type: 'string', enum: ['full', 'off'], default: 'full' },
         executorGuardVersion: { type: 'number', default: 0 },
         useOpenAiVoice: { type: 'boolean', default: false },
@@ -70,6 +71,7 @@ async function getApiKeyStatus() {
     allowSystemControl: store.get('pcAccessMode') === 'full' || Boolean(store.get('allow_system_control')),
     allowBrowserAutomation: Boolean(store.get('allowBrowserAutomation')),
     allowScreenCapture: Boolean(store.get('allowScreenCapture')),
+    allowPassiveListening: Boolean(store.get('allowPassiveListening')),
     pcAccessMode: store.get('pcAccessMode') === 'off' ? 'off' : 'full',
     useOpenAiVoice: Boolean(store.get('useOpenAiVoice')),
     ttsProvider: ['piper', 'edge', 'elevenlabs'].includes(store.get('ttsProvider')) ? store.get('ttsProvider') : 'piper',
@@ -87,6 +89,7 @@ async function saveApiKeys({
   allowSystemControl,
   allowBrowserAutomation,
   allowScreenCapture,
+  allowPassiveListening,
   useOpenAiVoice,
   ttsProvider,
 } = {}) {
@@ -124,6 +127,9 @@ async function saveApiKeys({
   }
   if (typeof allowScreenCapture === 'boolean') {
     store.set('allowScreenCapture', allowScreenCapture);
+  }
+  if (typeof allowPassiveListening === 'boolean') {
+    store.set('allowPassiveListening', allowPassiveListening);
   }
   if (typeof useOpenAiVoice === 'boolean') {
     store.set('useOpenAiVoice', useOpenAiVoice);
