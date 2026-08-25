@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('jarvis', {
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   testOpenGoogle: () => ipcRenderer.invoke('executor:test-open-google'),
   sendTextCommand: (text) => ipcRenderer.invoke('jarvis:text-command', { text }),
+  analyzeScreen: (question) => ipcRenderer.invoke('jarvis:screen-command', { question }),
   onGlobalShortcut: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = () => callback();

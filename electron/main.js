@@ -253,6 +253,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+ipcMain.handle('jarvis:screen-command', async (_event, { question } = {}) => {
+  try {
+    const response = await respondToUser(question || 'Jarvis, olhe minha tela');
+    return await speakResponse(response);
+  } catch (error) {
+    logError('Falha na analise da tela:', error);
+    throw new Error(error?.message || 'Falha ao analisar a tela.');
+  }
+});
+
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
 });

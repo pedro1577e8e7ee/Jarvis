@@ -22,6 +22,7 @@ export default function App() {
   const [userName, setUserName] = useState('Chefe');
   const [allowSystemControl, setAllowSystemControl] = useState(true);
   const [allowBrowserAutomation, setAllowBrowserAutomation] = useState(false);
+  const [allowScreenCapture, setAllowScreenCapture] = useState(false);
   const [launchingBrowserWorkspace, setLaunchingBrowserWorkspace] = useState(false);
   const [lastAction, setLastAction] = useState('');
   const [testingExecutor, setTestingExecutor] = useState(false);
@@ -80,6 +81,7 @@ export default function App() {
         setKeysConfigured(status.isConfigured);
         setAllowSystemControl(status.allowSystemControl);
         setAllowBrowserAutomation(Boolean(status.allowBrowserAutomation));
+        setAllowScreenCapture(Boolean(status.allowScreenCapture));
         setUseOpenAiVoice(status.useOpenAiVoice);
         setTtsProvider(status.ttsProvider || 'piper');
         setHasOpenAiKey(status.hasOpenAiKey);
@@ -328,6 +330,7 @@ export default function App() {
         elevenLabsVoiceId,
         allowSystemControl,
         allowBrowserAutomation,
+        allowScreenCapture,
         useOpenAiVoice,
         ttsProvider,
       });
@@ -539,6 +542,19 @@ export default function App() {
                 {launchingBrowserWorkspace ? 'Abrindo navegador...' : 'Abrir contas autorizadas'}
               </button>
             )}
+
+            <p className="perm-title">Permitir Visão de Tela</p>
+            <label className={'perm-card ' + (allowScreenCapture ? 'selected' : '')}>
+              <input
+                type="checkbox"
+                checked={allowScreenCapture}
+                onChange={(event) => setAllowScreenCapture(event.target.checked)}
+              />
+              <span>
+                <strong>Analisar minha tela sob comando</strong>
+                O Jarvis captura a tela principal somente quando você pedir e envia a imagem ao modelo de visão configurado. A captura não é salva.
+              </span>
+            </label>
 
             <button
               className="cancel-settings-btn"

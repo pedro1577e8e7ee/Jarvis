@@ -7,6 +7,12 @@ const {
   abrirQualquerCoisa,
   executarComandoWindows,
 } = require('./automations');
+const { capturePrimaryScreen } = require('./vision');
+const {
+  appendConversation,
+  appendTask,
+  getRecentConversations,
+} = require('./memory');
 const {
   getApiKeyStatus,
   getPrimaryProvider,
@@ -46,6 +52,10 @@ const GROQ_MODEL_PREFERENCE = [
   'openai/gpt-oss-20b',
   'openai/gpt-oss-120b',
 ];
+const GROQ_VISION_MODEL_PREFERENCE = [
+  'meta-llama/llama-4-scout-17b-16e-instruct',
+  'llama-3.2-90b-vision-preview',
+];
 
 const systemTools = [
   {
@@ -59,6 +69,20 @@ const systemTools = [
           instrucaoOuApp: { type: 'string', description: 'Nome do aplicativo/jogo, URL, protocolo Windows ou caminho de pasta.' },
         },
         required: ['instrucaoOuApp'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'olharMinhaTela',
+      description: 'Captura a tela principal e descreve o que esta visivel. So use depois de o usuario autorizar Visao de Tela nas configuracoes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pergunta: { type: 'string', description: 'Pergunta opcional sobre o conteudo visivel na tela.' },
+        },
         additionalProperties: false,
       },
     },
@@ -151,6 +175,15 @@ function remember(message) {
   if (sessionHistory.length > MAX_HISTORY_MESSAGES) {
     sessionHistory.splice(0, sessionHistory.length - MAX_HISTORY_MESSAGES);
   }
+  appendConversation(message).catch((error) => console.error('[Memoria] Falha ao salvar conversa:', error.message));
+}
+
+let memoryLoaded = false;
+async function hydrateMemory() {
+  if (memoryLoaded) return;
+  const saved = await getRecentConversations(MAX_HISTORY_MESSAGES);
+  sessionHistory.push(...saved);
+  memoryLoaded = true;
 }
 
 function parseArgs(raw) {
@@ -189,10 +222,22 @@ async function getGroqChatModel() {
   return groqModelPromise;
 }
 
-async function createChatCompletion(provider, payload) {
+async function getGroqVisionModel() {
+  const response = await fetch('https://api.groq.com/openai/v1/models', {
+    headers: { Authorization: 'Bearer ' + await getGroqApiKey() },
+  });
+  if (!response.ok) throw new Error('Nao foi possivel listar os modelos de visao Groq: HTTP ' + response.status);
+  const data = await response.json();
+  const available = new Set((data.data || []).map((model) => model.id));
+  const selected = GROQ_VISION_MODEL_PREFERENCE.find((model) => available.has(model));
+  if (!selected) throw new Error('A chave Groq nao possui um modelo de visao compativel disponivel.');
+  return selected;
+}
+
+async function createChatCompletion(provider, payload, modelOverride = null) {
   const config = PROVIDERS[provider];
   const apiKey = provider === 'groq' ? await getGroqApiKey() : await getOpenAiApiKey();
-  const model = provider === 'groq' ? await getGroqChatModel() : config.model;
+  const model = modelOverride || (provider === 'groq' ? await getGroqChatModel() : config.model);
   const response = await fetch(config.url, {
     method: 'POST',
     headers: {
@@ -207,6 +252,30 @@ async function createChatCompletion(provider, payload) {
     throw new Error(provider + ' Chat retornou HTTP ' + response.status + ': ' + details);
   }
   return response.json();
+}
+
+async function analyzeCurrentScreen(question = 'O que esta visivel na tela?') {
+  const status = await getApiKeyStatus();
+  if (!status.allowScreenCapture) {
+    throw new Error('A visao de tela esta desligada. Autorize-a nas configuracoes primeiro.');
+  }
+  const provider = await getPrimaryProvider();
+  const capture = await capturePrimaryScreen();
+  const model = provider === 'groq' ? await getGroqVisionModel() : 'gpt-4o-mini';
+  const response = await createChatCompletion(provider, {
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: String(question || 'Descreva de forma objetiva o que esta visivel na tela, incluindo alertas, botoes e possiveis erros.') },
+        { type: 'image_url', image_url: { url: capture.dataUrl } },
+      ],
+    }],
+    temperature: 0.2,
+    max_completion_tokens: 300,
+  }, model);
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) throw new Error('O modelo de visao nao retornou uma analise.');
+  return spokenText(content, 700);
 }
 
 async function executeIntent(intent) {
@@ -253,6 +322,14 @@ async function executeToolCall(toolCall) {
       label: args.nomeWorkspace,
       ...await abrirWorkspacePersonalizado(args.nomeWorkspace),
     };
+  } else if (name === 'olharMinhaTela') {
+    const analysis = await analyzeCurrentScreen(args.pergunta || 'Descreva de forma objetiva o que esta visivel na tela.');
+    action = {
+      success: true,
+      name,
+      label: 'análise da tela',
+      analysis,
+    };
   } else if (name === 'gerenciarPastas') {
     action = {
       success: true,
@@ -291,15 +368,17 @@ function finishWithAction(userText, action, userName) {
   const text = confirmationFor(action, userName);
   remember({ role: 'user', content: userText });
   remember({ role: 'assistant', content: text });
+  appendTask(action).catch((error) => console.error('[Memoria] Falha ao salvar tarefa:', error.message));
   return { text, action };
 }
 
-function finishWithSpeech(userText, text, action = null, { rememberTurn = true } = {}) {
-  const spoken = spokenText(text);
+function finishWithSpeech(userText, text, action = null, { rememberTurn = true, maxChars = 280 } = {}) {
+  const spoken = spokenText(text, maxChars);
   if (rememberTurn) {
     remember({ role: 'user', content: userText });
     remember({ role: 'assistant', content: spoken });
   }
+  if (action) appendTask(action).catch((error) => console.error('[Memoria] Falha ao salvar tarefa:', error.message));
   return { text: spoken, action };
 }
 
@@ -335,20 +414,21 @@ function antiHallucinationPrompt(assistantName, userName, allowSystemControl) {
   );
 }
 
-function spokenText(text) {
+function spokenText(text, maxChars = 280) {
   return String(text || '')
     .replace(/[#*_`>]/g, '')
     .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
     .replace(/\n+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 280);
+    .slice(0, maxChars);
 }
 
 async function respondToUser(userText) {
+  await hydrateMemory();
   const text = repairTranscript(typeof userText === 'string' ? userText.trim() : '');
   if (!text) throw new Error('Nao ha texto para enviar ao Jarvis.');
-  const { allowSystemControl, userName } = await getApiKeyStatus();
+  const { allowSystemControl, allowScreenCapture, userName } = await getApiKeyStatus();
   const address = userName || 'Chefe';
   if (isJunkTranscript(text)) {
     return finishWithSpeech(
@@ -366,6 +446,22 @@ async function respondToUser(userText) {
   const provider = await getPrimaryProvider();
   const assistantName = await getAssistantName();
   const intent = parseIntent(text);
+
+  if (intent?.type === 'screen') {
+    if (!allowScreenCapture) {
+      return finishWithSpeech(text, address + ', a Visao de Tela esta desligada. Autorize-a nas configuracoes e tente novamente.');
+    }
+    try {
+      const analysis = await analyzeCurrentScreen('Descreva detalhadamente, em portugues do Brasil, o que esta visivel na tela. Destaque textos legiveis, alertas, botoes e possiveis erros.');
+      return finishWithSpeech(text, analysis, {
+        name: 'olharMinhaTela',
+        label: 'análise da tela',
+        success: true,
+      }, { maxChars: 700 });
+    } catch (error) {
+      return finishWithSpeech(text, address + ', nao consegui analisar a tela. ' + error.message);
+    }
+  }
 
   if (intent && !allowSystemControl) {
     return finishWithSpeech(
@@ -393,7 +489,7 @@ async function respondToUser(userText) {
     );
   }
 
-  const tools = allowSystemControl ? systemTools : [];
+  const tools = (allowSystemControl || allowScreenCapture) ? systemTools : [];
   const messages = [
     { role: 'system', content: antiHallucinationPrompt(assistantName, userName, allowSystemControl) },
     { role: 'system', content: 'O nome escolhido pelo usuario para voce e: ' + assistantName + '. O usuario prefere ser chamado de: ' + address + '.' },
@@ -404,7 +500,7 @@ async function respondToUser(userText) {
   const firstResponse = await createChatCompletion(provider, {
     messages,
     tools,
-    tool_choice: allowSystemControl ? 'auto' : 'none',
+    tool_choice: (allowSystemControl || allowScreenCapture) ? 'auto' : 'none',
     temperature: 0.2,
     max_completion_tokens: 80,
   });
@@ -432,6 +528,9 @@ async function respondToUser(userText) {
       return finishWithSpeech(text, address + ', falhei ao tentar executar essa tarefa. ' + error.message);
     }
     console.log('[LLM] Acoes concluidas com sucesso:', executed.map((item) => item.action.name));
+    if (executed[0]?.action?.name === 'olharMinhaTela') {
+      return finishWithSpeech(text, executed[0].action.analysis, executed[0].action, { maxChars: 700 });
+    }
     return finishWithAction(text, executed[0].action, address);
   }
 
@@ -457,4 +556,4 @@ async function respondToUser(userText) {
   return finishWithSpeech(text, responseText);
 }
 
-module.exports = { respondToUser, executeIntent };
+module.exports = { respondToUser, executeIntent, analyzeCurrentScreen };

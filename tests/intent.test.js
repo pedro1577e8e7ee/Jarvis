@@ -32,3 +32,10 @@ test('confirma workspace parcial sem afirmar sucesso total', () => {
   }, 'Chefe');
   assert.match(message, /alguns itens opcionais/);
 });
+
+test('reconhece pedido de visão da tela', () => {
+  assert.deepEqual(parseIntent('Jarvis, olhe minha tela'), {
+    type: 'screen',
+    label: 'análise da tela',
+  });
+});

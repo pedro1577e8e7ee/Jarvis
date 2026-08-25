@@ -120,6 +120,11 @@ function parseIntent(userText) {
   const url = parseUrl(raw);
   const wantsOpen = looksLikeOpenRequest(raw);
 
+  if (/\b(olhe|olhar|veja|ver|analise|analisa|descreva|o que tem|o que esta|que esta)\b.*\b(tela|ecran|monitor|screen)\b/.test(text)
+    || /\b(tela|ecran|monitor|screen)\b.*\b(olhe|analise|ver|esta acontecendo)\b/.test(text)) {
+    return { type: 'screen', label: 'análise da tela' };
+  }
+
   if (url && (wantsOpen || /^https?:\/\//i.test(raw.trim()))) {
     return { type: 'site', url, label: url };
   }
